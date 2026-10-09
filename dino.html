@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dino Race</title>
+<style>
+  body{margin:0;background:#f7f7f7;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:8px;box-sizing:border-box}
+  #start{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:40px}
+  #start input{padding:10px;font-size:18px;width:240px;text-align:center}
+  #start button{padding:10px 24px;font-size:18px}
+  #game{display:none;flex-direction:column;align-items:center;width:100%}
+  #score{font-size:22px;margin:4px}
+  canvas{width:100%;max-width:800px;touch-action:manipulation}
+  #over{display:none;flex-direction:column;align-items:center;gap:10px;margin-top:12px;text-align:center}
+  #over .big{font-size:48px;font-weight:bold;color:#333}
+  #share{display:inline-block;padding:12px 20px;background:#2aabee;color:#fff;border-radius:8px;text-decoration:none;font-size:18px}
+  #status{font-size:13px;color:#777;min-height:18px;margin:4px}
+</style>
+</head>
+<body>
+
+<div id="start">
+  <div style="font-size:20px">اسمت چیه؟</div>
+  <input id="nameInput" maxlength="20" placeholder="اسم">
+  <button id="startBtn">شروع بازی</button>
+</div>
+
+<div id="game">
+  <div id="score">0</div>
+  <canvas id="c" width="800" height="200"></canvas>
+  <div id="over">
+    <div>امتیاز تو:</div>
+    <div class="big" id="finalScore">0</div>
+    <a id="share" href="#" target="_blank">ارسال به تلگرام</a>
+  </div>
+  <div id="status"></div>
+</div>
+
+<script>
+// ===== تنظیمات =====
+// آدرس بازی را بعد از فعال شدن GitHub Pages، اینجا بگذار
+const GAME_URL = 'https://example.com/dino.html';
+const S = 1.5;
+const GAP_MIN = 38, GAP_MAX = 60;
+const REACT_BASE = 15, REACT_SPEED = 10;
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const scoreEl = document.getElementById('score');
+const statusEl = document.getElementById('status');
+const overEl = document.getElementById('over');
+const finalEl = document.getElementById('finalScore');
+const shareEl = document.getElementById('share');
+const startEl = document.getElementById('start');
+const gameEl = document.getElementById('game');
+const nameInput = document.getElementById('nameInput');
+const startBtn = document.getElementById('startBtn');
+
+const W = 800, GROUND = 170, G = 0.6, JV = -12 * Math.sqrt(S);
+
+const dino = { x: 50, w: 40 * S, h: 44 * S, y: 0, vy: 0, onGround: true };
+let bot = false, state = 'idle', speed = 6, dist = 0, obs = [], score = 0;
+let last = null, myName = 'ناشناس', buf = '';
+
+const groundTop = () => GROUND - dino.h;
+
+function reset() {
+  speed = 6; dist = 0; obs = []; score = 0;
+  dino.y = groundTop(); dino.vy = 0; dino.onGround = true;
+  state = 'run';
+  overEl.style.display = 'none';
+  statusEl.textContent = '';
+}
+
+function jump() {
+  if (dino.onGround) { dino.vy = JV; dino.onGround = false; }
+}
+
+// بافر پرش: اگر لمس وقتی دایناسور در هوا بود، تا ۱۵۰ میلی‌ثانیه نگه داشته می‌شود و به محض فرود می‌پرد
+let jumpRequested = 0;
+
+function action() {
+  if (state === 'idle') return;
+  if (state === 'over') { reset(); return; }
+  if (state === 'ready') state = 'run';
+  if (dino.onGround) {
+    jump();
+  } else {
+    jumpRequested = performance.now() + 150;
+  }
+}
+
+function makeCactus(x) {
+  const t = Math.random();
+  let w, h;
+  if (t < 0.5)      { w = 18; h = 36; }
+  else if (t < 0.8) { w = 26; h = 50; }
+  else              { w = 40; h = 36; }
+  return { x, w: w * S, h: h * S };
+}
+
+function lastRight() {
+  return obs.length ? obs[obs.length - 1].x + obs[obs.length - 1].w : 0;
+}
+
+function update(f) {
+  speed = Math.min(13, speed + 0.0015 * f);
+  dist += speed * f;
+  score = Math.floor(dist / 10);
+
+  dino.vy += G * f;
+  dino.y += dino.vy * f;
+  if (dino.y >= groundTop()) { dino.y = groundTop(); dino.vy = 0; dino.onGround = true; }
+  if (dino.onGround && performance.now() < jumpRequested) {
+    jumpRequested = 0;
+    jump();
+  }
+
+  obs.forEach(o => o.x -= speed * f);
+  obs = obs.filter(o => o.x + o.w > -20);
+
+  while (lastRight() < W + 100) {
+    const gap = speed * (GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN));
+    const x = obs.length ? lastRight() + gap : W + 20;
+    obs.push(makeCactus(x));
+  }
+
+  if (bot && dino.onGround) {
+    const o = obs.find(o => o.x + o.w > dino.x);
+    if (o) {
+      const d = o.x - (dino.x + dino.w);
+      if (d > 0 && d < REACT_BASE + speed * REACT_SPEED) jump();
+    }
+  }
+
+  for (const o of obs) {
+    if (dino.x + 5 < o.x + o.w - 4 &&
+        dino.x + dino.w - 5 > o.x + 4 &&
+        dino.y + dino.h - 4 > GROUND - o.h) {
+      gameOver();
+      break;
+    }
+  }
+}
+
+function gameOver() {
+  state = 'over';
+  finalEl.textContent = score;
+  const text = `🦖 ${myName} امتیازش در دایناسور ${score} شد! بیا رکورد منو بزن:`;
+  shareEl.href = `https://t.me/share/url?url=${encodeURIComponent(GAME_URL)}&text=${encodeURIComponent(text)}`;
+  overEl.style.display = 'flex';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, 200);
+  ctx.fillStyle = '#535353';
+  ctx.fillRect(0, GROUND, W, 1);
+  ctx.fillRect(dino.x, dino.y, dino.w, dino.h);
+  ctx.fillStyle = '#f7f7f7';
+  ctx.fillRect(dino.x + 26 * S, dino.y + 8 * S, 5 * S, 5 * S);
+  ctx.fillStyle = '#535353';
+  obs.forEach(o => ctx.fillRect(o.x, GROUND - o.h, o.w, o.h));
+
+  ctx.font = '18px sans-serif';
+  ctx.textAlign = 'center';
+  if (state === 'ready') ctx.fillText('برای شروع ضربه بزنید یا Space', W / 2, 100);
+  scoreEl.textContent = score;
+}
+
+function loop(t) {
+  let f = 1;
+  if (last !== null) f = Math.min((t - last) / 16.67, 3);
+  last = t;
+  if (state === 'run') update(f);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function showGame() {
+  startEl.style.display = 'none';
+  gameEl.style.display = 'flex';
+  reset();
+  state = 'ready';
+}
+
+function startGame() {
+  const n = nameInput.value.trim();
+  if (!n) { nameInput.focus(); return; }
+  myName = n;
+  try { localStorage.setItem('dinoName', n); } catch (e) {}
+  showGame();
+}
+startBtn.addEventListener('click', startGame);
+nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); });
+
+// اگر اسم قبلاً روی این دستگاه ذخیره شده، دیگر پرسیده نمی‌شود
+(function () {
+  let saved = null;
+  try { saved = localStorage.getItem('dinoName'); } catch (e) {}
+  if (saved) { myName = saved; showGame(); }
+})();
+
+// کد مخفی: تایپ کلمه bot ربات را روشن یا خاموش می‌کند
+document.addEventListener('keydown', e => {
+  if (e.target === nameInput) return;
+  buf = (buf + e.key.toLowerCase()).slice(-3);
+  if (buf === 'bot') {
+    bot = !bot;
+    buf = '';
+    statusEl.textContent = 'ربات: ' + (bot ? 'روشن' : 'خاموش');
+  }
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); action(); }
+});
+
+// لمس هر جای صفحه بازی (حتی پایین صفحه) پرش می‌دهد، به‌جز دکمه‌ها و کادر اسم
+document.body.addEventListener('pointerdown', e => {
+  if (gameEl.style.display !== 'flex') return;
+  if (e.target.closest('a, button, input')) return;
+  e.preventDefault();
+  action();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+  </html>
